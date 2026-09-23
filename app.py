@@ -143,7 +143,7 @@ def process_text_ollama(text: str, mode: str, model_name: str, endpoint: str) ->
     return clean_ai_leftovers(raw_output)
 
 def process_text_groq(text: str, mode: str, api_key: str, model_name: str) -> str:
-    """Executes the request via Groq Cloud API with dynamic fallback diagnostics."""
+    """Executes the request via Groq Cloud API with exact available model targets."""
     system_prompt = PROMPT_HUMANIZE if mode == "Humanize (AI Bypass)" else PROMPT_PLAGIARISM_REMOVE
     
     headers = {
@@ -166,14 +166,13 @@ def process_text_groq(text: str, mode: str, api_key: str, model_name: str) -> st
     response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=40)
     
     if response.status_code == 404:
-        # Fetch available models from Groq to display live options
         try:
             models_resp = requests.get("https://api.groq.com/openai/v1/models", headers=headers, timeout=10)
             if models_resp.status_code == 200:
                 available_models = [m["id"] for m in models_resp.json().get("data", [])]
                 raise Exception(
                     f"Model '{model_name}' was not found on Groq (404 Error).\n\n"
-                    f"Active models available to your API key: {', '.join(available_models[:6])}"
+                    f"Active models available to your API key: {', '.join(available_models)}"
                 )
         except Exception as inner_e:
             if "Active models available" in str(inner_e):
@@ -181,7 +180,7 @@ def process_text_groq(text: str, mode: str, api_key: str, model_name: str) -> st
                 
         raise Exception(
             f"Model '{model_name}' was not found on Groq (404 Error). "
-            "Please switch to 'llama-3.1-8b-instant' in the sidebar."
+            "Please switch to 'openai/gpt-oss-120b' or 'openai/gpt-oss-20b' in the sidebar."
         )
         
     elif response.status_code == 401:
@@ -208,10 +207,10 @@ def main():
         model_name = st.sidebar.selectbox(
             "Groq Model Target",
             [
-                "llama-3.1-8b-instant",
-                "llama-3.1-70b-versatile",
-                "mixtral-8x7b-32768",
-                "gemma2-9b-it"
+                "openai/gpt-oss-120b",
+                "openai/gpt-oss-20b",
+                "canopylabs/orpheus-v1-english",
+                "allam-2-7b"
             ]
         )
     else:
