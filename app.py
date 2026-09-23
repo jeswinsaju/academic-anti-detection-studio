@@ -5,13 +5,13 @@ import requests
 import streamlit as st
 
 # ==========================================
-# 1. AGGRESSIVE ANTI-DETECTION SYSTEM PROMPT
+# 1. ANTI-DETECTION SYSTEM PROMPT
 # ==========================================
 
-SYSTEM_HUMANIZE_PROMPT = """You are a senior academic editor. Your task is to completely rewrite the user's academic text so that it passes Turnitin and GPTZero as 100% human-written.
+SYSTEM_HUMANIZE_PROMPT = """You are a senior academic editor. Your task is to completely rewrite the user's academic text so that it passes Turnitin and GPTZero as human-written.
 
 STRICT LINGUISTIC CONSTRAINTS:
-1. HIGH BURSTINESS (SENTENCE VARIATION): You must aggressively alternate sentence lengths. Write a short 3-5 word statement. Then write a complex 25+ word sentence. 
+1. HIGH BURSTINESS (SENTENCE VARIATION): Aggressively alternate sentence lengths. Write a short 3-5 word statement, followed by a complex 25+ word sentence.
 2. INSERT EM-DASHES & PARENTHESES: Break up complex ideas using em-dashes (—) or parenthetical observations to break synthetic flow.
 3. FORBIDDEN AI TRANSITIONS: NEVER use: "Furthermore", "Moreover", "In conclusion", "Additionally", "It is important to note that", "Consequently", "Thus", "In summary", "Overall".
 4. FORBIDDEN AI VOCABULARY: NEVER use: "delve", "testament", "tapestry", "pivotal", "beacon", "fostering", "seamlessly", "robust", "interplay", "realm", "ecosystem", "underscores", "highlighting".
@@ -24,20 +24,18 @@ STRICT LINGUISTIC CONSTRAINTS:
 # ==========================================
 
 def mutate_and_clean_text(text: str) -> str:
-    """
-    Strips robotic preamble and enforces structural cleanups.
-    """
+    """Strips robotic preamble and enforces structural cleanups."""
     if not text:
         return ""
 
-    # Clean markdown wrappers if returned
+    # Remove code block formatting if returned
     text = re.sub(r"^```[\w]*\n", "", text)
     text = re.sub(r"\n```$", "", text)
     
-    # Strip AI intros
+    # Strip intros
     text = re.sub(r"^(Here is|Below is|Sure|Here's)[\s\S]*?:\n*", "", text, flags=re.IGNORECASE)
     
-    # Banned transition removal
+    # Banned transitions removal
     banned_patterns = [
         r"\bFurthermore,\b", r"\bMoreover,\b", r"\bIn conclusion,\b",
         r"\bIt is important to note that\b", r"\bTestament to\b",
@@ -47,7 +45,6 @@ def mutate_and_clean_text(text: str) -> str:
     for pattern in banned_patterns:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
 
-    # Clean double spaces
     text = re.sub(r" +", " ", text)
     return text.strip()
 
@@ -99,9 +96,9 @@ def process_groq_humanize(text: str, api_key: str, model_name: str) -> str:
             {"role": "system", "content": SYSTEM_HUMANIZE_PROMPT},
             {"role": "user", "content": f"Rewrite this text to bypass AI detection completely:\n\n{text}"}
         ],
-        "temperature": 0.95,
-        "top_p": 0.88,
-        "presence_penalty": 0.6,
+        "temperature": 0.85,
+        "top_p": 0.9,
+        "presence_penalty": 0.5,
         "frequency_penalty": 0.5
     }
     
@@ -117,11 +114,14 @@ def process_groq_humanize(text: str, api_key: str, model_name: str) -> str:
 
     res_json = response.json()
     
-    if "choices" in res_json and len(res_json["choices"]) > 0:
+    try:
         content = res_json["choices"][0]["message"]["content"]
-        return mutate_and_clean_text(content)
-    else:
-        raise Exception(f"Invalid Response Payload from API: {res_json}")
+        cleaned_content = mutate_and_clean_text(content)
+        if not cleaned_content:
+            raise Exception("Model returned an empty string after cleaning.")
+        return cleaned_content
+    except (KeyError, IndexError) as e:
+        raise Exception(f"Failed to parse API output structure: {res_json}")
 
 # ==========================================
 # 5. STREAMLIT INTERFACE
@@ -130,6 +130,10 @@ def process_groq_humanize(text: str, api_key: str, model_name: str) -> str:
 def main():
     st.set_page_config(page_title="Academic Anti-Detection Studio", layout="wide")
     st.title("🎓 Academic Anti-Detection Studio")
+
+    # Initialize session state for output
+    if "output_text" not in st.session_state:
+        st.session_state["output_text"] = ""
 
     st.sidebar.header("Groq API Setup")
     api_key = st.sidebar.text_input("Groq API Key", type="password", value=os.environ.get("GROQ_API_KEY", ""))
@@ -148,21 +152,16 @@ def main():
     
     with col1:
         st.subheader("Source Draft")
-        input_text = st.text_area("Paste original academic text here...", height=400)
+        input_text = st.text_area("Paste original academic text here...", height=400, key="input_text")
         run_btn = st.button("Humanize & Bypass AI", type="primary", use_container_width=True)
 
     with col2:
         st.subheader("Refactored Output")
-        
-        # Session state handling to ensure text stays visible after rerenders
-        if "humanized_text" not in st.session_state:
-            st.session_state.humanized_text = ""
-            
-        output_box = st.text_area(
+        st.text_area(
             "Output Text",
-            value=st.session_state.humanized_text,
+            value=st.session_state["output_text"],
             height=400,
-            key="output_field"
+            key="output_display"
         )
 
     if run_btn:
@@ -177,21 +176,17 @@ def main():
         with st.spinner("Processing anti-detection algorithms..."):
             try:
                 result = process_groq_humanize(input_text, api_key, model_name)
-                
-                if result:
-                    st.session_state.humanized_text = result
-                    st.rerun()
-                else:
-                    st.error("The API returned an empty output. Try changing the Model Target in the sidebar.")
-
+                # Directly update state variable bound to the right text area
+                st.session_state["output_text"] = result
+                st.success("Refactoring complete!")
             except Exception as e:
                 st.error(f"Execution Failure: {str(e)}")
 
-    # Show Metrics if output exists
-    if st.session_state.humanized_text:
+    # Display cadence metrics if output exists
+    if st.session_state["output_text"]:
         st.markdown("---")
         st.subheader("📊 Cadence & Burstiness Metrics")
-        metrics = analyze_cadence(st.session_state.humanized_text)
+        metrics = analyze_cadence(st.session_state["output_text"])
         
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Word Count", metrics["word_count"])
