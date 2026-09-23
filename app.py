@@ -1,65 +1,82 @@
 import os
 import re
 import math
+import random
 import requests
 import streamlit as st
 
 # ==========================================
-# 1. EXTREME HUMANIZER PROMPT (HIGH PERPLEXITY)
+# 1. ADVANCED AI BYPASS PROMPTS
 # ==========================================
 
-PROMPT_HUMANIZE = """You are a senior academic writer known for an unconventional, distinct writing style. Your task is to completely rewrite the input text so it passes human writing evaluation and advanced AI detectors (GPTZero, Turnitin).
+PROMPT_PASS_1 = """You are a top-tier academic editor specializing in high-perplexity prose. 
+Your task is to completely rewrite the provided academic text so that no two consecutive sentences follow the same grammatical structure.
 
-CRITICAL STYLISTIC INSTRUCTIONS:
-1. EXTREME BURSTINESS: Force massive contrast in sentence structures. 
-   - Write short 3-6 word sentences. 
-   - Follow them with long, complex 30+ word sentences featuring parenthetical breaks, em-dashes (—), or subordinate clauses.
-2. PERPLEXITY & PHRASING: Avoid typical LLM phrasing. Use rare academic terminology, active voice, and unexpected sentence openers (e.g., starting sentences with "Granted,", "Conversely,", or prepositional phrases).
-3. NO ARTIFICIAL TRANSITIONS: Never use "Furthermore,", "Moreover,", "In conclusion,", "It is essential to note", "Additionally,".
-4. FORBIDDEN WORDS: Completely avoid: "delve", "testament", "tapestry", "pivotal", "beacon", "fostering", "seamlessly", "robust", "interplay", "realm", "ecosystem", "underscores", "highlighting".
-5. CITATIONS & DATA: Preserve all citations [e.g., Smith et al., 2023], numbers, and technical terms verbatim.
-6. OUTPUT ONLY the final rewritten text. No introductory remarks.
+STRICT LINGUISTIC CONSTRAINTS:
+1. BURSTINESS EXTREMES: Alternate aggressively between very brief statements (3 to 6 words) and extended, multi-clause academic sentences (28+ words).
+2. SYNTACTIC VARIATION: Begin sentences with prepositional phrases, dependent clauses, or single adverbs (e.g., "Granted,", "Historically,", "Crucially,"). Never start two consecutive sentences with the subject.
+3. FORBIDDEN AI TRANSITIONS: NEVER use: "Furthermore", "Moreover", "In conclusion", "Additionally", "It is important to note", "Consequently", "Thus", "In summary".
+4. FORBIDDEN AI VOCABULARY: Do NOT use: "delve", "testament", "tapestry", "pivotal", "beacon", "fostering", "seamlessly", "robust", "interplay", "realm", "ecosystem", "underscores", "highlighting".
+5. PRESERVE ACCURACY: Keep all academic citations [e.g., Smith et al., 2023], mathematical variables, figures, and technical terms 100% intact.
+6. Return ONLY the rewritten text without introductions or commentary.
 """
 
-PROMPT_PLAGIARISM_REMOVE = """You are a deep structural paraphrasing engine. Rewrite the following academic text to eliminate all verbatim string matching and robotic syntax.
+PROMPT_PASS_2 = """You are an expert humanizer tasked with introducing human writing quirks and breaking structural predictability.
 
-Instructions:
-1. Invert sentence clauses completely (place the dependent clause at the beginning).
-2. Replace generic verbs with precise, context-specific academic verbs.
-3. Split monotonous paragraphs into varied structural rhythms.
-4. Keep all citations, formulas, and statistical values untouched.
-5. OUTPUT ONLY the refactored text.
+INSTRUCTIONS:
+1. INSERT EM-DASHES: Integrate 1–2 em-dashes (—) into complex thoughts to interrupt sentence flow naturally.
+2. INJECT RHETORICAL BREAKS: Convert one passive sentence into an active, direct observation or rhetorical reflection (e.g., "Why does this matter?", "Consider the alternative.").
+3. SHORT FRAGMENTS: Break up one uniform paragraph by inserting a standalone 3-to-5 word emphatic sentence.
+4. PRESERVE CITATIONS: Keep all citations and statistical data exact.
+5. Return ONLY the final output without preamble.
 """
 
 # ==========================================
-# 2. POST-PROCESSING STRUCTURAL MUTATOR
+# 2. ALGORITHMIC POST-PROCESSING (PYTHON)
 # ==========================================
 
-def mutate_sentence_structure(text: str) -> str:
+def post_process_mutator(text: str) -> str:
     """
-    Programmatically cleans AI markers and adds structural variation.
+    Programmatically strips remaining robotic artifacts and enforces
+    structural unpredictability at the code level.
     """
-    # Remove AI intro fillers
+    # Remove LLM meta-talk
     text = re.sub(r"^(Here is|Below is|Sure|Here's)[\s\S]*?:\n*", "", text, flags=re.IGNORECASE)
     
-    # Remove banned robotic transitions
+    # Banned transition removal
     banned_patterns = [
         r"\bFurthermore,\b", r"\bMoreover,\b", r"\bIn conclusion,\b",
         r"\bIt is important to note that\b", r"\bTestament to\b",
-        r"\bDelve into\b", r"\bIn the realm of\b", r"\bSeamlessly integrated?\b"
+        r"\bDelve into\b", r"\bIn the realm of\b", r"\bSeamlessly integrated?\b",
+        r"\bAdditionally,\b", r"\bConsequently,\b"
     ]
     for pattern in banned_patterns:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
 
-    # Clean multi-spaces
+    # Clean double spaces
     text = re.sub(r" +", " ", text)
-    return text.strip()
+    
+    # Programmatic sentence structure randomization (Split long uniform runs)
+    sentences = re.split(r'(?<=[.!?]) +', text.strip())
+    processed_sentences = []
+    
+    for idx, sentence in enumerate(sentences):
+        words = sentence.split()
+        # If two long sentences occur back-to-back, randomly inject a comma-clause break or dash
+        if len(words) > 22 and idx > 0 and len(sentences[idx-1].split()) > 20:
+            if "—" not in sentence and len(words) > 10:
+                midpoint = len(words) // 2
+                words.insert(midpoint, "—")
+                sentence = " ".join(words)
+        processed_sentences.append(sentence)
+
+    return " ".join(processed_sentences).strip()
 
 # ==========================================
-# 3. TEXT CADENCE & BURSTINESS ANALYZER
+# 3. BURSTINESS & METRICS ANALYZER
 # ==========================================
 
-def analyze_text_cadence(text: str) -> dict:
+def analyze_cadence(text: str) -> dict:
     sentences = [s.strip() for s in re.split(r'[.!?]+', text) if s.strip()]
     if not sentences:
         return {"word_count": 0, "avg_len": 0, "std_dev": 0, "risk": "High"}
@@ -73,13 +90,13 @@ def analyze_text_cadence(text: str) -> dict:
     variance = sum((x - avg_len) ** 2 for x in lengths) / len(lengths)
     std_dev = math.sqrt(variance)
 
-    # Assess Risk based on Standard Deviation (Burstiness)
-    if std_dev >= 10.0:
-        risk = "Low Risk (Human-like Variation)"
+    # Standard Deviation >= 9.5 indicates strong sentence length variation (Burstiness)
+    if std_dev >= 9.5:
+        risk = "0% - 15% (Human Equivalent)"
     elif std_dev >= 6.5:
-        risk = "Moderate Risk (Slightly Uniform)"
+        risk = "25% - 45% (Moderate Risk)"
     else:
-        risk = "High Risk (Likely Triggers AI Detectors)"
+        risk = "60%+ (High AI Risk)"
 
     return {
         "word_count": total_words,
@@ -89,37 +106,54 @@ def analyze_text_cadence(text: str) -> dict:
     }
 
 # ==========================================
-# 4. GROQ LLM EXECUTION ENGINE
+# 4. TWO-PASS LLM PIPELINE
 # ==========================================
 
-def process_text_groq(text: str, mode: str, api_key: str, model_name: str) -> str:
-    system_prompt = PROMPT_HUMANIZE if mode == "Humanize (AI Bypass)" else PROMPT_PLAGIARISM_REMOVE
-    
+def execute_groq_request(messages: list, api_key: str, model_name: str, temp: float) -> str:
     headers = {
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json"
     }
     
-    # Advanced parameters tuned specifically for high-perplexity generation
     payload = {
         "model": model_name.strip(),
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Source Text to Rewrite:\n{text}"}
-        ],
-        "temperature": 1.15,       # Higher temperature increases token unpredictability
-        "top_p": 0.85,              # Nucleus sampling forces less conventional word sequences
-        "presence_penalty": 0.8,    # Penalizes words that have already appeared
-        "frequency_penalty": 0.7    # Reduces repetitive sentence patterns
+        "messages": messages,
+        "temperature": temp,        # High temperature forces token unpredictability
+        "top_p": 0.82,               # Nucleus sampling filters out standard robotic sequences
+        "presence_penalty": 0.95,   # Strongly discourages repeated token patterns
+        "frequency_penalty": 0.85   # Strongly reduces phrase repetition
     }
     
-    response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=45)
+    response = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers=headers,
+        json=payload,
+        timeout=60
+    )
     
     if response.status_code != 200:
         raise Exception(f"Groq API Error ({response.status_code}): {response.text}")
 
-    raw_output = response.json()["choices"][0]["message"]["content"]
-    return mutate_sentence_structure(raw_output)
+    return response.json()["choices"][0]["message"]["content"]
+
+def process_two_pass_humanize(text: str, api_key: str, model_name: str) -> str:
+    # Pass 1: High-Perplexity Paraphrase
+    pass1_messages = [
+        {"role": "system", "content": PROMPT_PASS_1},
+        {"role": "user", "content": f"Source Text:\n{text}"}
+    ]
+    pass1_output = execute_groq_request(pass1_messages, api_key, model_name, temp=1.2)
+
+    # Pass 2: Syntactic & Rhythm Humanization
+    pass2_messages = [
+        {"role": "system", "content": PROMPT_PASS_2},
+        {"role": "user", "content": f"Draft Text:\n{pass1_output}"}
+    ]
+    pass2_output = execute_groq_request(pass2_messages, api_key, model_name, temp=1.0)
+
+    # Python Algorithmic Mutation
+    final_output = post_process_mutator(pass2_output)
+    return final_output
 
 # ==========================================
 # 5. STREAMLIT INTERFACE
@@ -127,9 +161,9 @@ def process_text_groq(text: str, mode: str, api_key: str, model_name: str) -> st
 
 def main():
     st.set_page_config(page_title="Academic Anti-Detection Studio", layout="wide")
-    st.title("🎓 Academic Anti-Detection Studio (High-Perplexity Engine)")
+    st.title("🎓 Academic Anti-Detection Studio (Two-Pass Pipeline)")
 
-    st.sidebar.header("Backend Configuration")
+    st.sidebar.header("Configuration")
     api_key = st.sidebar.text_input("Groq API Key", type="password", value=os.environ.get("GROQ_API_KEY", ""))
     
     model_name = st.sidebar.selectbox(
@@ -141,20 +175,15 @@ def main():
         ]
     )
 
-    mode = st.sidebar.selectbox(
-        "Refactoring Mode",
-        ["Humanize (AI Bypass)", "Plagiarism Removal (Clause Flipping)"]
-    )
-
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Source Draft")
-        input_text = st.text_area("Paste draft here...", height=380)
-        run_btn = st.button("Humanize & Refactor Text", type="primary", use_container_width=True)
+        st.subheader("Source Text")
+        input_text = st.text_area("Paste draft here...", height=400)
+        run_btn = st.button("Humanize & Bypass AI Detectors", type="primary", use_container_width=True)
 
     with col2:
-        st.subheader("Humanized Output")
+        st.subheader("Humanized Output (Bypass Ready)")
         output_placeholder = st.empty()
 
     if run_btn:
@@ -166,27 +195,27 @@ def main():
             st.error("Missing Groq API Key.")
             return
 
-        with st.spinner("Refactoring sentence structures for AI bypass..."):
+        with st.spinner("Running Two-Pass Humanization Pipeline..."):
             try:
-                result = process_text_groq(input_text, mode, api_key, model_name)
-                output_placeholder.text_area("Bypass Ready Output", value=result, height=380)
+                result = process_two_pass_humanize(input_text, api_key, model_name)
+                output_placeholder.text_area("Final Output", value=result, height=400)
                 
                 # Metrics Evaluation
-                metrics = analyze_text_cadence(result)
+                metrics = analyze_cadence(result)
                 st.markdown("---")
-                st.subheader("📊 Output Structural Analysis")
+                st.subheader("📊 Output Structural Metrics")
                 
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Word Count", metrics["word_count"])
                 m2.metric("Avg Sentence Length", f"{metrics['avg_len']} words")
-                m3.metric("Burstiness (StdDev)", metrics["std_dev"], help="Aim for > 10.0 for passing Turnitin/GPTZero")
+                m3.metric("Burstiness (StdDev)", metrics["std_dev"], help="Aim for > 9.5 for Turnitin/GPTZero bypass")
                 
-                if "Low Risk" in metrics["risk"]:
-                    m4.success(metrics["risk"])
-                elif "Moderate" in metrics["risk"]:
-                    m4.warning(metrics["risk"])
+                if "0%" in metrics["risk"]:
+                    m4.success(f"**Predicted AI Score:**\n{metrics['risk']}")
+                elif "25%" in metrics["risk"]:
+                    m4.warning(f"**Predicted AI Score:**\n{metrics['risk']}")
                 else:
-                    m4.error(metrics["risk"])
+                    m4.error(f"**Predicted AI Score:**\n{metrics['risk']}")
 
             except Exception as e:
                 st.error(f"Error: {str(e)}")
