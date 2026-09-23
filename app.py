@@ -143,7 +143,7 @@ def process_text_ollama(text: str, mode: str, model_name: str, endpoint: str) ->
     return clean_ai_leftovers(raw_output)
 
 def process_text_groq(text: str, mode: str, api_key: str, model_name: str) -> str:
-    """Executes the request via Groq Cloud API with explicit error handling."""
+    """Executes the request via Groq Cloud API with dynamic fallback diagnostics."""
     system_prompt = PROMPT_HUMANIZE if mode == "Humanize (AI Bypass)" else PROMPT_PLAGIARISM_REMOVE
     
     headers = {
@@ -166,12 +166,26 @@ def process_text_groq(text: str, mode: str, api_key: str, model_name: str) -> st
     response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=40)
     
     if response.status_code == 404:
+        # Fetch available models from Groq to display live options
+        try:
+            models_resp = requests.get("https://api.groq.com/openai/v1/models", headers=headers, timeout=10)
+            if models_resp.status_code == 200:
+                available_models = [m["id"] for m in models_resp.json().get("data", [])]
+                raise Exception(
+                    f"Model '{model_name}' was not found on Groq (404 Error).\n\n"
+                    f"Active models available to your API key: {', '.join(available_models[:6])}"
+                )
+        except Exception as inner_e:
+            if "Active models available" in str(inner_e):
+                raise inner_e
+                
         raise Exception(
             f"Model '{model_name}' was not found on Groq (404 Error). "
-            "Please select 'llama-3.3-70b-versatile' or 'llama-3.1-8b-instant' in the sidebar."
+            "Please switch to 'llama-3.1-8b-instant' in the sidebar."
         )
+        
     elif response.status_code == 401:
-        raise Exception("Invalid Groq API Key (401 Unauthorized). Please verify your key under Streamlit Secrets or sidebar input.")
+        raise Exception("Invalid Groq API Key (401 Unauthorized). Please check your key under Streamlit Secrets or sidebar inputs.")
         
     response.raise_for_status()
     raw_output = response.json()["choices"][0]["message"]["content"]
@@ -193,7 +207,12 @@ def main():
         api_key = st.sidebar.text_input("Groq API Key", type="password", value=os.environ.get("GROQ_API_KEY", ""))
         model_name = st.sidebar.selectbox(
             "Groq Model Target",
-            ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
+            [
+                "llama-3.1-8b-instant",
+                "llama-3.1-70b-versatile",
+                "mixtral-8x7b-32768",
+                "gemma2-9b-it"
+            ]
         )
     else:
         model_name = st.sidebar.text_input("Ollama Model Target", value="llama3.1:8b")
