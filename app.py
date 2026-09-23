@@ -5,7 +5,7 @@ import requests
 import streamlit as st
 
 # ==========================================
-# 1. ANTI-DETECTION SYSTEM PROMPT
+# 1. SYSTEM PROMPT
 # ==========================================
 
 SYSTEM_HUMANIZE_PROMPT = """You are a senior academic editor. Your task is to completely rewrite the user's academic text so that it passes Turnitin and GPTZero as human-written.
@@ -28,14 +28,14 @@ def mutate_and_clean_text(text: str) -> str:
     if not text:
         return ""
 
-    # Remove code block formatting if returned
+    # Remove markdown code block wrappers if returned
     text = re.sub(r"^```[\w]*\n", "", text)
     text = re.sub(r"\n```$", "", text)
     
-    # Strip intros
+    # Strip common AI preambles
     text = re.sub(r"^(Here is|Below is|Sure|Here's)[\s\S]*?:\n*", "", text, flags=re.IGNORECASE)
     
-    # Banned transitions removal
+    # Remove banned transition words
     banned_patterns = [
         r"\bFurthermore,\b", r"\bMoreover,\b", r"\bIn conclusion,\b",
         r"\bIt is important to note that\b", r"\bTestament to\b",
@@ -118,10 +118,10 @@ def process_groq_humanize(text: str, api_key: str, model_name: str) -> str:
         content = res_json["choices"][0]["message"]["content"]
         cleaned_content = mutate_and_clean_text(content)
         if not cleaned_content:
-            raise Exception("Model returned an empty string after cleaning.")
+            raise Exception("Model output was blank after post-processing cleanups.")
         return cleaned_content
-    except (KeyError, IndexError) as e:
-        raise Exception(f"Failed to parse API output structure: {res_json}")
+    except (KeyError, IndexError):
+        raise Exception(f"Malformed API JSON Response: {res_json}")
 
 # ==========================================
 # 5. STREAMLIT INTERFACE
@@ -131,7 +131,7 @@ def main():
     st.set_page_config(page_title="Academic Anti-Detection Studio", layout="wide")
     st.title("🎓 Academic Anti-Detection Studio")
 
-    # Initialize session state for output
+    # Initialize key in session state
     if "output_text" not in st.session_state:
         st.session_state["output_text"] = ""
 
@@ -155,35 +155,32 @@ def main():
         input_text = st.text_area("Paste original academic text here...", height=400, key="input_text")
         run_btn = st.button("Humanize & Bypass AI", type="primary", use_container_width=True)
 
-    with col2:
-        st.subheader("Refactored Output")
-        st.text_area(
-            "Output Text",
-            value=st.session_state["output_text"],
-            height=400,
-            key="output_display"
-        )
-
+    # Process request BEFORE rendering the output column widget
     if run_btn:
         if not input_text.strip():
             st.warning("Please paste source text first.")
-            return
-
-        if not api_key.strip():
+        elif not api_key.strip():
             st.error("Groq API Key is missing.")
-            return
+        else:
+            with st.spinner("Processing anti-detection algorithms..."):
+                try:
+                    result = process_groq_humanize(input_text, api_key, model_name)
+                    # Update widget value directly via session state
+                    st.session_state["output_text"] = result
+                except Exception as e:
+                    st.error(f"Execution Failure: {str(e)}")
 
-        with st.spinner("Processing anti-detection algorithms..."):
-            try:
-                result = process_groq_humanize(input_text, api_key, model_name)
-                # Directly update state variable bound to the right text area
-                st.session_state["output_text"] = result
-                st.success("Refactoring complete!")
-            except Exception as e:
-                st.error(f"Execution Failure: {str(e)}")
+    with col2:
+        st.subheader("Refactored Output")
+        # Direct binding to session state key ensures immediate visual render
+        st.text_area(
+            "Output Text",
+            height=400,
+            key="output_text"
+        )
 
-    # Display cadence metrics if output exists
-    if st.session_state["output_text"]:
+    # Metrics section
+    if st.session_state.get("output_text", "").strip():
         st.markdown("---")
         st.subheader("📊 Cadence & Burstiness Metrics")
         metrics = analyze_cadence(st.session_state["output_text"])
