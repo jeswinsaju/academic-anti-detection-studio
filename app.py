@@ -1,46 +1,40 @@
 import os
 import re
 import math
-import random
 import requests
 import streamlit as st
 
 # ==========================================
-# 1. ADVANCED AI BYPASS PROMPTS
+# 1. AGGRESSIVE ANTI-DETECTION SYSTEM PROMPT
 # ==========================================
 
-PROMPT_PASS_1 = """You are a top-tier academic editor specializing in high-perplexity prose. 
-Your task is to completely rewrite the provided academic text so that no two consecutive sentences follow the same grammatical structure.
+SYSTEM_HUMANIZE_PROMPT = """You are a senior academic editor. Your task is to completely rewrite the user's academic text so that it passes Turnitin and GPTZero as 100% human-written.
 
 STRICT LINGUISTIC CONSTRAINTS:
-1. BURSTINESS EXTREMES: Alternate aggressively between very brief statements (3 to 6 words) and extended, multi-clause academic sentences (28+ words).
-2. SYNTACTIC VARIATION: Begin sentences with prepositional phrases, dependent clauses, or single adverbs (e.g., "Granted,", "Historically,", "Crucially,"). Never start two consecutive sentences with the subject.
-3. FORBIDDEN AI TRANSITIONS: NEVER use: "Furthermore", "Moreover", "In conclusion", "Additionally", "It is important to note", "Consequently", "Thus", "In summary".
-4. FORBIDDEN AI VOCABULARY: Do NOT use: "delve", "testament", "tapestry", "pivotal", "beacon", "fostering", "seamlessly", "robust", "interplay", "realm", "ecosystem", "underscores", "highlighting".
-5. PRESERVE ACCURACY: Keep all academic citations [e.g., Smith et al., 2023], mathematical variables, figures, and technical terms 100% intact.
-6. Return ONLY the rewritten text without introductions or commentary.
-"""
-
-PROMPT_PASS_2 = """You are an expert humanizer tasked with introducing human writing quirks and breaking structural predictability.
-
-INSTRUCTIONS:
-1. INSERT EM-DASHES: Integrate 1–2 em-dashes (—) into complex thoughts to interrupt sentence flow naturally.
-2. INJECT RHETORICAL BREAKS: Convert one passive sentence into an active, direct observation or rhetorical reflection (e.g., "Why does this matter?", "Consider the alternative.").
-3. SHORT FRAGMENTS: Break up one uniform paragraph by inserting a standalone 3-to-5 word emphatic sentence.
-4. PRESERVE CITATIONS: Keep all citations and statistical data exact.
-5. Return ONLY the final output without preamble.
+1. HIGH BURSTINESS (SENTENCE VARIATION): You must aggressively alternate sentence lengths. Write a short 3-5 word statement. Then write a complex 25+ word sentence. 
+2. INSERT EM-DASHES & PARENTHESES: Break up complex ideas using em-dashes (—) or parenthetical observations to break synthetic flow.
+3. FORBIDDEN AI TRANSITIONS: NEVER use: "Furthermore", "Moreover", "In conclusion", "Additionally", "It is important to note that", "Consequently", "Thus", "In summary", "Overall".
+4. FORBIDDEN AI VOCABULARY: NEVER use: "delve", "testament", "tapestry", "pivotal", "beacon", "fostering", "seamlessly", "robust", "interplay", "realm", "ecosystem", "underscores", "highlighting".
+5. PRESERVE CITATIONS: Keep all academic citations [e.g., Smith et al., 2023], mathematical variables, data, and technical terms 100% intact.
+6. OUTPUT ONLY THE REWRITTEN TEXT: Do not include intros, conversational chat, quotes, or markdown wrappers.
 """
 
 # ==========================================
-# 2. ALGORITHMIC POST-PROCESSING (PYTHON)
+# 2. POST-PROCESSING MUTATOR
 # ==========================================
 
-def post_process_mutator(text: str) -> str:
+def mutate_and_clean_text(text: str) -> str:
     """
-    Programmatically strips remaining robotic artifacts and enforces
-    structural unpredictability at the code level.
+    Strips robotic preamble and enforces structural cleanups.
     """
-    # Remove LLM meta-talk
+    if not text:
+        return ""
+
+    # Clean markdown wrappers if returned
+    text = re.sub(r"^```[\w]*\n", "", text)
+    text = re.sub(r"\n```$", "", text)
+    
+    # Strip AI intros
     text = re.sub(r"^(Here is|Below is|Sure|Here's)[\s\S]*?:\n*", "", text, flags=re.IGNORECASE)
     
     # Banned transition removal
@@ -55,25 +49,10 @@ def post_process_mutator(text: str) -> str:
 
     # Clean double spaces
     text = re.sub(r" +", " ", text)
-    
-    # Programmatic sentence structure randomization (Split long uniform runs)
-    sentences = re.split(r'(?<=[.!?]) +', text.strip())
-    processed_sentences = []
-    
-    for idx, sentence in enumerate(sentences):
-        words = sentence.split()
-        # If two long sentences occur back-to-back, randomly inject a comma-clause break or dash
-        if len(words) > 22 and idx > 0 and len(sentences[idx-1].split()) > 20:
-            if "—" not in sentence and len(words) > 10:
-                midpoint = len(words) // 2
-                words.insert(midpoint, "—")
-                sentence = " ".join(words)
-        processed_sentences.append(sentence)
-
-    return " ".join(processed_sentences).strip()
+    return text.strip()
 
 # ==========================================
-# 3. BURSTINESS & METRICS ANALYZER
+# 3. CADENCE ANALYZER
 # ==========================================
 
 def analyze_cadence(text: str) -> dict:
@@ -90,13 +69,12 @@ def analyze_cadence(text: str) -> dict:
     variance = sum((x - avg_len) ** 2 for x in lengths) / len(lengths)
     std_dev = math.sqrt(variance)
 
-    # Standard Deviation >= 9.5 indicates strong sentence length variation (Burstiness)
-    if std_dev >= 9.5:
-        risk = "0% - 15% (Human Equivalent)"
-    elif std_dev >= 6.5:
-        risk = "25% - 45% (Moderate Risk)"
+    if std_dev >= 8.5:
+        risk = "Low Risk (0-15% AI Score)"
+    elif std_dev >= 5.5:
+        risk = "Moderate Risk (25-40% AI Score)"
     else:
-        risk = "60%+ (High AI Risk)"
+        risk = "High Risk (>60% AI Score)"
 
     return {
         "word_count": total_words,
@@ -106,10 +84,10 @@ def analyze_cadence(text: str) -> dict:
     }
 
 # ==========================================
-# 4. TWO-PASS LLM PIPELINE
+# 4. API CALL ENGINE
 # ==========================================
 
-def execute_groq_request(messages: list, api_key: str, model_name: str, temp: float) -> str:
+def process_groq_humanize(text: str, api_key: str, model_name: str) -> str:
     headers = {
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json"
@@ -117,11 +95,14 @@ def execute_groq_request(messages: list, api_key: str, model_name: str, temp: fl
     
     payload = {
         "model": model_name.strip(),
-        "messages": messages,
-        "temperature": temp,        # High temperature forces token unpredictability
-        "top_p": 0.82,               # Nucleus sampling filters out standard robotic sequences
-        "presence_penalty": 0.95,   # Strongly discourages repeated token patterns
-        "frequency_penalty": 0.85   # Strongly reduces phrase repetition
+        "messages": [
+            {"role": "system", "content": SYSTEM_HUMANIZE_PROMPT},
+            {"role": "user", "content": f"Rewrite this text to bypass AI detection completely:\n\n{text}"}
+        ],
+        "temperature": 0.95,
+        "top_p": 0.88,
+        "presence_penalty": 0.6,
+        "frequency_penalty": 0.5
     }
     
     response = requests.post(
@@ -132,28 +113,15 @@ def execute_groq_request(messages: list, api_key: str, model_name: str, temp: fl
     )
     
     if response.status_code != 200:
-        raise Exception(f"Groq API Error ({response.status_code}): {response.text}")
+        raise Exception(f"API Error ({response.status_code}): {response.text}")
 
-    return response.json()["choices"][0]["message"]["content"]
-
-def process_two_pass_humanize(text: str, api_key: str, model_name: str) -> str:
-    # Pass 1: High-Perplexity Paraphrase
-    pass1_messages = [
-        {"role": "system", "content": PROMPT_PASS_1},
-        {"role": "user", "content": f"Source Text:\n{text}"}
-    ]
-    pass1_output = execute_groq_request(pass1_messages, api_key, model_name, temp=1.2)
-
-    # Pass 2: Syntactic & Rhythm Humanization
-    pass2_messages = [
-        {"role": "system", "content": PROMPT_PASS_2},
-        {"role": "user", "content": f"Draft Text:\n{pass1_output}"}
-    ]
-    pass2_output = execute_groq_request(pass2_messages, api_key, model_name, temp=1.0)
-
-    # Python Algorithmic Mutation
-    final_output = post_process_mutator(pass2_output)
-    return final_output
+    res_json = response.json()
+    
+    if "choices" in res_json and len(res_json["choices"]) > 0:
+        content = res_json["choices"][0]["message"]["content"]
+        return mutate_and_clean_text(content)
+    else:
+        raise Exception(f"Invalid Response Payload from API: {res_json}")
 
 # ==========================================
 # 5. STREAMLIT INTERFACE
@@ -161,9 +129,9 @@ def process_two_pass_humanize(text: str, api_key: str, model_name: str) -> str:
 
 def main():
     st.set_page_config(page_title="Academic Anti-Detection Studio", layout="wide")
-    st.title("🎓 Academic Anti-Detection Studio (Two-Pass Pipeline)")
+    st.title("🎓 Academic Anti-Detection Studio")
 
-    st.sidebar.header("Configuration")
+    st.sidebar.header("Groq API Setup")
     api_key = st.sidebar.text_input("Groq API Key", type="password", value=os.environ.get("GROQ_API_KEY", ""))
     
     model_name = st.sidebar.selectbox(
@@ -171,54 +139,71 @@ def main():
         [
             "openai/gpt-oss-120b",
             "openai/gpt-oss-20b",
-            "canopylabs/orpheus-v1-english"
+            "canopylabs/orpheus-v1-english",
+            "allam-2-7b"
         ]
     )
 
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Source Text")
-        input_text = st.text_area("Paste draft here...", height=400)
-        run_btn = st.button("Humanize & Bypass AI Detectors", type="primary", use_container_width=True)
+        st.subheader("Source Draft")
+        input_text = st.text_area("Paste original academic text here...", height=400)
+        run_btn = st.button("Humanize & Bypass AI", type="primary", use_container_width=True)
 
     with col2:
-        st.subheader("Humanized Output (Bypass Ready)")
-        output_placeholder = st.empty()
+        st.subheader("Refactored Output")
+        
+        # Session state handling to ensure text stays visible after rerenders
+        if "humanized_text" not in st.session_state:
+            st.session_state.humanized_text = ""
+            
+        output_box = st.text_area(
+            "Output Text",
+            value=st.session_state.humanized_text,
+            height=400,
+            key="output_field"
+        )
 
     if run_btn:
         if not input_text.strip():
-            st.warning("Please enter text to process.")
+            st.warning("Please paste source text first.")
             return
 
-        if not api_key:
-            st.error("Missing Groq API Key.")
+        if not api_key.strip():
+            st.error("Groq API Key is missing.")
             return
 
-        with st.spinner("Running Two-Pass Humanization Pipeline..."):
+        with st.spinner("Processing anti-detection algorithms..."):
             try:
-                result = process_two_pass_humanize(input_text, api_key, model_name)
-                output_placeholder.text_area("Final Output", value=result, height=400)
+                result = process_groq_humanize(input_text, api_key, model_name)
                 
-                # Metrics Evaluation
-                metrics = analyze_cadence(result)
-                st.markdown("---")
-                st.subheader("📊 Output Structural Metrics")
-                
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Word Count", metrics["word_count"])
-                m2.metric("Avg Sentence Length", f"{metrics['avg_len']} words")
-                m3.metric("Burstiness (StdDev)", metrics["std_dev"], help="Aim for > 9.5 for Turnitin/GPTZero bypass")
-                
-                if "0%" in metrics["risk"]:
-                    m4.success(f"**Predicted AI Score:**\n{metrics['risk']}")
-                elif "25%" in metrics["risk"]:
-                    m4.warning(f"**Predicted AI Score:**\n{metrics['risk']}")
+                if result:
+                    st.session_state.humanized_text = result
+                    st.rerun()
                 else:
-                    m4.error(f"**Predicted AI Score:**\n{metrics['risk']}")
+                    st.error("The API returned an empty output. Try changing the Model Target in the sidebar.")
 
             except Exception as e:
-                st.error(f"Error: {str(e)}")
+                st.error(f"Execution Failure: {str(e)}")
+
+    # Show Metrics if output exists
+    if st.session_state.humanized_text:
+        st.markdown("---")
+        st.subheader("📊 Cadence & Burstiness Metrics")
+        metrics = analyze_cadence(st.session_state.humanized_text)
+        
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Word Count", metrics["word_count"])
+        m2.metric("Avg Sentence Length", f"{metrics['avg_len']} words")
+        m3.metric("Burstiness (StdDev)", metrics["std_dev"])
+        
+        if "Low Risk" in metrics["risk"]:
+            m4.success(metrics["risk"])
+        elif "Moderate" in metrics["risk"]:
+            m4.warning(metrics["risk"])
+        else:
+            m4.error(metrics["risk"])
 
 if __name__ == "__main__":
     main()
