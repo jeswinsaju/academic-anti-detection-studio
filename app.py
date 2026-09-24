@@ -1,188 +1,233 @@
-import os
-import re
-import math
-import requests
 import streamlit as st
+import re
+import random
+from difflib import SequenceMatcher
 
-# ==========================================
-# 1. ACADEMIC PUBLICATION PROMPT
-# ==========================================
+try:
+    import textstat
+except:
+    textstat = None
 
-PUBLICATION_PROMPT = """You are a principal researcher and peer-reviewer for an academic journal. 
 
-Your task is to rewrite the user's text on anxiety screening so that it reads as original, high-impact, publication-ready research that passes Turnitin and GPTZero.
+# -----------------------------
+# Citation & Number Protection
+# -----------------------------
+def lock_citations(text):
 
-STRICT EDITORIAL REQUIREMENTS:
-1. SPECIFICITY & ANCHORING: Replace all generic references (e.g., "screening tools", "questionnaires") with specific clinical measures (e.g., GAD-7, STAI, Beck Anxiety Inventory, HAM-A) and specific clinical contexts (e.g., primary care triage, adolescent ED screening).
-2. CRITICAL ANALYSIS OVER SUMMARY: Do not merely describe what screening is. Frame the content around trade-offs: sensitivity vs. specificity, self-report bias, somatic symptom overlap, or implementation barriers.
-3. NON-LINEAR FLOW: Do not start every paragraph with a general topic sentence. Start some paragraphs directly with a limitation, a methodological critique, or a sharp, direct finding.
-4. RHYTHM VARIATION: Alternate short 2-3 sentence analytical assertions with longer, detailed methodological breakdowns.
-5. PRESERVE INTENT & CITATIONS: Keep all citations [e.g., Smith et al., 2023], data points, and technical core ideas intact.
-6. NO AI ADJECTIVES/TRANSITIONS: Do NOT use: Furthermore, Moreover, In conclusion, pivotal, tapestry, delve, foster, underscore, robust, realm.
+    citations = re.findall(r"\[\d+(?:[-–]\d+)?\]", text)
 
-Output ONLY the rewritten academic text.
-"""
+    mapping = {}
 
-# ==========================================
-# 2. POST-PROCESSING ENFORCER
-# ==========================================
+    for i, citation in enumerate(citations):
+        placeholder = f"__CIT_{i}__"
+        mapping[placeholder] = citation
+        text = text.replace(citation, placeholder, 1)
 
-def enforce_publication_rules(text: str) -> str:
-    """Post-processes output to guarantee removal of AI artifacts."""
-    if not text:
-        return ""
+    return text, mapping
 
-    # Clean markdown formatting wrappers
-    text = re.sub(r"^```[\w]*\n", "", text)
-    text = re.sub(r"\n```$", "", text)
-    text = re.sub(r"^(Here is|Below is|Sure|Here's)[\s\S]*?:\n*", "", text, flags=re.IGNORECASE)
 
-    # Clean redundant spaces
-    text = re.sub(r" +", " ", text)
-    return text.strip()
+def restore_citations(text, mapping):
 
-# ==========================================
-# 3. METRICS ENGINE
-# ==========================================
+    for key, value in mapping.items():
+        text = text.replace(key, value)
 
-def evaluate_uniqueness_metrics(text: str) -> dict:
-    sentences = [s.strip() for s in re.split(r'[.!?]+', text) if s.strip()]
-    if not sentences:
-        return {"word_count": 0, "avg_len": 0, "std_dev": 0, "rating": "N/A"}
+    return text
 
-    lengths = [len(re.findall(r'\b\w+\b', s)) for s in sentences if len(re.findall(r'\b\w+\b', s)) > 0]
-    if not lengths:
-        return {"word_count": 0, "avg_len": 0, "std_dev": 0, "rating": "N/A"}
 
-    total_words = sum(lengths)
-    avg_len = total_words / len(lengths)
-    variance = sum((x - avg_len) ** 2 for x in lengths) / len(lengths)
-    std_dev = math.sqrt(variance)
+def lock_numbers(text):
 
-    # Higher Standard Deviation (>8.0) indicates high variation in human cadence
-    if std_dev >= 8.5:
-        rating = "Publication Ready (High Structural Variety)"
-    elif std_dev >= 5.5:
-        rating = "Moderate Variety (Consider Adding Shorter Sentences)"
-    else:
-        rating = "High AI Signature (Uniform Paragraph Structure)"
+    numbers = re.findall(r"\d+(?:\.\d+)?%?", text)
 
-    return {
-        "word_count": total_words,
-        "avg_len": round(avg_len, 1),
-        "std_dev": round(std_dev, 2),
-        "rating": rating
-    }
+    mapping = {}
 
-# ==========================================
-# 4. API CALL ENGINE
-# ==========================================
+    for i, number in enumerate(numbers):
+        placeholder = f"__NUM_{i}__"
+        mapping[placeholder] = number
+        text = text.replace(number, placeholder, 1)
 
-def process_academic_rewrite(text: str, api_key: str, model_name: str) -> str:
-    headers = {
-        "Authorization": f"Bearer {api_key.strip()}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": model_name.strip(),
-        "messages": [
-            {"role": "system", "content": PUBLICATION_PROMPT},
-            {"role": "user", "content": f"Transform this academic draft into publication-ready, critically-analyzed text:\n\n{text}"}
+    return text, mapping
+
+
+def restore_numbers(text, mapping):
+
+    for key, value in mapping.items():
+        text = text.replace(key, value)
+
+    return text
+
+
+# -----------------------------
+# Humanizer
+# -----------------------------
+def rewrite_phrases(text):
+
+    replacements = {
+
+        "However": [
+            "Still",
+            "Even so",
+            "That said"
         ],
-        "temperature": 0.8,
-        "top_p": 0.85,
-        "presence_penalty": 0.5,
-        "frequency_penalty": 0.5
-    }
-    
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers=headers,
-        json=payload,
-        timeout=60
-    )
-    
-    if response.status_code != 200:
-        raise Exception(f"API Connection Error ({response.status_code}): {response.text}")
 
-    res_json = response.json()
-    
-    try:
-        content = res_json["choices"][0]["message"]["content"]
-        return enforce_publication_rules(content)
-    except (KeyError, IndexError):
-        raise Exception(f"Invalid Payload Structure: {res_json}")
+        "Furthermore": [
+            "Another observation is that",
+            "In addition",
+            "More importantly"
+        ],
 
-# ==========================================
-# 5. STREAMLIT INTERFACE
-# ==========================================
+        "Moreover": [
+            "Beyond that",
+            "Interestingly",
+            "There's another side to this"
+        ],
 
-def main():
-    st.set_page_config(page_title="Academic Publication Engine", layout="wide")
-    st.title("🎓 Academic Uniqueness & Publication Engine")
+        "Recent studies": [
+            "Recent findings",
+            "Researchers have increasingly observed",
+            "A growing body of evidence suggests"
+        ],
 
-    if "output_text" not in st.session_state:
-        st.session_state["output_text"] = ""
-
-    st.sidebar.header("Groq Configuration")
-    api_key = st.sidebar.text_input("Groq API Key", type="password", value=os.environ.get("GROQ_API_KEY", ""))
-    
-    model_name = st.sidebar.selectbox(
-        "Model Selection",
-        [
-            "openai/gpt-oss-120b",
-            "openai/gpt-oss-20b",
-            "canopylabs/orpheus-v1-english"
+        "At the same time": [
+            "Meanwhile",
+            "Still",
+            "In parallel"
         ]
-    )
+    }
 
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("1. Source Draft")
-        input_text = st.text_area("Paste original academic text here...", height=400, key="input_text")
-        run_btn = st.button("Restructure for Publication", type="primary", use_container_width=True)
+    for phrase, options in replacements.items():
 
-    # Execute transformation before rendering second column
-    if run_btn:
-        if not input_text.strip():
-            st.warning("Please enter text first.")
-        elif not api_key.strip():
-            st.error("API key is required.")
-        else:
-            with st.spinner("Applying domain anchoring and critical analysis restructuring..."):
-                try:
-                    result = process_academic_rewrite(input_text, api_key, model_name)
-                    st.session_state["output_text"] = result
-                except Exception as e:
-                    st.error(f"Processing Error: {str(e)}")
-
-    with col2:
-        st.subheader("2. Unique Academic Output")
-        st.text_area(
-            "Publication-Ready Output",
-            height=400,
-            key="output_text"
+        text = re.sub(
+            phrase,
+            random.choice(options),
+            text,
+            flags=re.IGNORECASE
         )
 
-    # Metrics section
-    if st.session_state.get("output_text", "").strip():
-        st.markdown("---")
-        st.subheader("📊 Cadence & Structure Evaluation")
-        metrics = evaluate_uniqueness_metrics(st.session_state["output_text"])
-        
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Word Count", metrics["word_count"])
-        m2.metric("Avg Sentence Length", f"{metrics['avg_len']} words")
-        m3.metric("Cadence Variety (StdDev)", metrics["std_dev"])
-        
-        if "Publication Ready" in metrics["rating"]:
-            m4.success(metrics["rating"])
-        elif "Moderate" in metrics["rating"]:
-            m4.warning(metrics["rating"])
-        else:
-            m4.error(metrics["rating"])
+    return text
 
-if __name__ == "__main__":
-    main()
+
+def add_human_variation(text):
+
+    sentences = re.split(
+        r'(?<=[.!?])\s+',
+        text
+    )
+
+    result = []
+
+    injections = [
+
+        "That matters.",
+        "An interesting detail.",
+        "A small point, but an important one.",
+        "Not perfect. Still useful.",
+        "Something worth noting."
+    ]
+
+    for sentence in sentences:
+
+        if sentence.strip():
+            result.append(sentence)
+
+            if len(sentence.split()) > 22:
+
+                if random.random() > 0.6:
+                    result.append(
+                        random.choice(injections)
+                    )
+
+    return " ".join(result)
+
+
+def humanize_text(text):
+
+    text = rewrite_phrases(text)
+
+    text = add_human_variation(text)
+
+    return text
+
+
+# -----------------------------
+# Analysis
+# -----------------------------
+def similarity_score(original, rewritten):
+
+    return round(
+        SequenceMatcher(
+            None,
+            original,
+            rewritten
+        ).ratio() * 100,
+        2
+    )
+
+
+def originality_score(original, rewritten):
+
+    return round(
+        100 - similarity_score(
+            original,
+            rewritten
+        ),
+        2
+    )
+
+
+def readability(text):
+
+    if textstat is None:
+        return "N/A"
+
+    try:
+        return round(
+            textstat.flesch_reading_ease(text),
+            2
+        )
+    except:
+        return "N/A"
+
+
+def detect_ai_phrases(text):
+
+    patterns = [
+
+        "Furthermore",
+        "Moreover",
+        "In conclusion",
+        "It is important to note",
+        "Recent studies suggest",
+        "Notably",
+        "Consequently"
+    ]
+
+    found = []
+
+    for pattern in patterns:
+
+        if pattern.lower() in text.lower():
+            found.append(pattern)
+
+    return found
+
+
+# -----------------------------
+# Streamlit UI
+# -----------------------------
+st.set_page_config(
+    page_title="Academic Humanizer",
+    page_icon="📚",
+    layout="wide"
+)
+
+st.title("📚 Academic Humanizer")
+
+st.markdown("""
+Preserve:
+- Citations
+- Statistics
+- Research findings
+
+Improve:
+- Readability
+-
