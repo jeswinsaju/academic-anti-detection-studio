@@ -5,9 +5,8 @@ from groq import Groq
 
 try:
     import textstat
-except:
+except ImportError:
     textstat = None
-
 
 # -----------------------------
 # PAGE CONFIG
@@ -23,6 +22,11 @@ st.set_page_config(
 # GROQ CLIENT
 # -----------------------------
 
+# Ensure the API key exists before initializing
+if "GROQ_API_KEY" not in st.secrets:
+    st.error("Missing GROQ_API_KEY in Streamlit secrets. Please add it to .streamlit/secrets.toml")
+    st.stop()
+
 client = Groq(
     api_key=st.secrets["GROQ_API_KEY"]
 )
@@ -32,89 +36,64 @@ client = Groq(
 # -----------------------------
 
 def lock_citations(text):
-
     citations = re.findall(
         r"\[\d+(?:[-–]\d+)?\]",
         text
     )
-
     mapping = {}
-
     for i, citation in enumerate(citations):
-
         token = f"__CIT_{i}__"
-
         mapping[token] = citation
-
         text = text.replace(
             citation,
             token,
             1
         )
-
     return text, mapping
 
-
 def restore_citations(text, mapping):
-
     for token, citation in mapping.items():
         text = text.replace(
             token,
             citation
         )
-
     return text
-
 
 # -----------------------------
 # NUMBER LOCKING
 # -----------------------------
 
 def lock_numbers(text):
-
     pattern = r"\d+(?:\.\d+)?%?"
-
     nums = re.findall(
         pattern,
         text
     )
-
     mapping = {}
-
     for i, num in enumerate(nums):
-
         token = f"__NUM_{i}__"
-
         mapping[token] = num
-
         text = text.replace(
             num,
             token,
             1
         )
-
     return text, mapping
 
-
 def restore_numbers(text, mapping):
-
     for token, value in mapping.items():
         text = text.replace(
             token,
             value
         )
-
     return text
-
 
 # -----------------------------
 # LLM REWRITE
 # -----------------------------
 
 def rewrite_text(text, mode):
-
     prompts = {
-
         "Light": """
 Rewrite lightly.
 
@@ -125,7 +104,6 @@ Requirements:
 - Improve readability.
 - Keep technical meaning unchanged.
 """,
-
         "Medium": """
 Rewrite academically.
 
@@ -139,7 +117,6 @@ Requirements:
 - Use natural academic writing.
 - Avoid repetitive AI-style wording.
 """,
-
         "Aggressive": """
 Rewrite extensively.
 
@@ -159,31 +136,31 @@ Rewrite by:
 """
     }
 
-    completion = client.chat.completions.create(
-        model="meta-llama/llama-4-scout-17b-16e-instruct",
-        temperature=0.9,
-        max_tokens=4096,
-        messages=[
-            {
-                "role": "system",
-                "content": prompts[mode]
-            },
-            {
-                "role": "user",
-                "content": text
-            }
-        ]
-    )
-
-    return completion.choices[0].message.content
-
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile", # Corrected Groq Model ID
+            temperature=0.9,
+            max_tokens=4096,
+            messages=[
+                {
+                    "role": "system",
+                    "content": prompts[mode]
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ]
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"Error: API call failed. Details: {str(e)}"
 
 # -----------------------------
 # SIMILARITY
 # -----------------------------
 
 def similarity_score(original, rewritten):
-
     return round(
         SequenceMatcher(
             None,
@@ -193,9 +170,7 @@ def similarity_score(original, rewritten):
         2
     )
 
-
 def originality_score(original, rewritten):
-
     return round(
         100 -
         similarity_score(
@@ -205,27 +180,20 @@ def originality_score(original, rewritten):
         2
     )
 
-
 # -----------------------------
 # READABILITY
 # -----------------------------
 
 def readability_score(text):
-
     if textstat is None:
         return "N/A"
-
     try:
-
         return round(
             textstat.flesch_reading_ease(text),
             2
         )
-
     except:
-
         return "N/A"
-
 
 # -----------------------------
 # UI
@@ -251,7 +219,6 @@ st.markdown("""
 ✅ Download Output
 """)
 
-
 rewrite_mode = st.selectbox(
     "Rewrite Strength",
     [
@@ -261,58 +228,45 @@ rewrite_mode = st.selectbox(
     ]
 )
 
-
 input_text = st.text_area(
     "Paste Academic Text",
     height=300
 )
 
-
 if st.button("✨ Rewrite Text"):
-
     if not input_text.strip():
-
         st.warning(
             "Please enter text."
         )
-
     else:
-
-        with st.spinner(
-            "Rewriting text..."
-        ):
-
+        with st.spinner("Rewriting text..."):
             text, citation_map = lock_citations(
                 input_text
             )
-
             text, number_map = lock_numbers(
                 text
             )
-
+            
             rewritten = rewrite_text(
                 text,
                 rewrite_mode
             )
-
-            rewritten = restore_numbers(
-                rewritten,
-                number_map
-            )
-
-            rewritten = restore_citations(
-                rewritten,
-                citation_map
-            )
-
-            st.session_state[
-                "original"
-            ] = input_text
-
-            st.session_state[
-                "rewritten"
-            ] = rewritten
-
+            
+            # Check if API returned an error string
+            if rewritten.startswith("Error:"):
+                st.error(rewritten)
+            else:
+                rewritten = restore_numbers(
+                    rewritten,
+                    number_map
+                )
+                rewritten = restore_citations(
+                    rewritten,
+                    citation_map
+                )
+                
+                st.session_state["original"] = input_text
+                st.session_state["rewritten"] = rewritten
 
 # -----------------------------
 # RESULTS
@@ -322,25 +276,17 @@ if (
     "original" in st.session_state and
     "rewritten" in st.session_state
 ):
-
-    original = st.session_state[
-        "original"
-    ]
-
-    rewritten = st.session_state[
-        "rewritten"
-    ]
+    original = st.session_state["original"]
+    rewritten = st.session_state["rewritten"]
 
     similarity = similarity_score(
         original,
         rewritten
     )
-
     originality = originality_score(
         original,
         rewritten
     )
-
     readability = readability_score(
         rewritten
     )
@@ -354,13 +300,11 @@ if (
             "Similarity",
             f"{similarity}%"
         )
-
     with c2:
         st.metric(
             "Originality",
             f"{originality}%"
         )
-
     with c3:
         st.metric(
             "Readability",
@@ -372,27 +316,21 @@ if (
     left, right = st.columns(2)
 
     with left:
-
-        st.subheader(
-            "Original"
-        )
-
+        st.subheader("Original")
         st.text_area(
-            "",
+            "original_box", # Added unique label
             original,
-            height=450
+            height=450,
+            label_visibility="collapsed"
         )
 
     with right:
-
-        st.subheader(
-            "Rewritten"
-        )
-
+        st.subheader("Rewritten")
         st.text_area(
-            "",
+            "rewritten_box", # Added unique label
             rewritten,
-            height=450
+            height=450,
+            label_visibility="collapsed"
         )
 
     st.download_button(
