@@ -160,7 +160,7 @@ Rewrite by:
     }
 
     completion = client.chat.completions.create(
-        model="llama3-70b-8192",
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
         temperature=0.9,
         max_tokens=4096,
         messages=[
