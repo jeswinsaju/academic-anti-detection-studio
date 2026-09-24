@@ -1,31 +1,35 @@
 import streamlit as st
 import re
 from difflib import SequenceMatcher
-from openai import OpenAI
+from groq import Groq
 
 try:
     import textstat
-except ImportError:
+except:
     textstat = None
 
 
-# --------------------------------
-# CONFIG
-# --------------------------------
+# -----------------------------
+# PAGE CONFIG
+# -----------------------------
 
 st.set_page_config(
-    page_title="Academic Humanizer",
+    page_title="Academic Humanizer Pro",
     page_icon="📚",
     layout="wide"
 )
 
-client = OpenAI(
-    api_key=st.secrets["OPENAI_API_KEY"]
+# -----------------------------
+# GROQ CLIENT
+# -----------------------------
+
+client = Groq(
+    api_key=st.secrets["GROQ_API_KEY"]
 )
 
-# --------------------------------
+# -----------------------------
 # CITATION LOCKING
-# --------------------------------
+# -----------------------------
 
 def lock_citations(text):
 
@@ -53,35 +57,38 @@ def lock_citations(text):
 
 def restore_citations(text, mapping):
 
-    for k, v in mapping.items():
-        text = text.replace(k, v)
+    for token, citation in mapping.items():
+        text = text.replace(
+            token,
+            citation
+        )
 
     return text
 
 
-# --------------------------------
+# -----------------------------
 # NUMBER LOCKING
-# --------------------------------
+# -----------------------------
 
 def lock_numbers(text):
 
     pattern = r"\d+(?:\.\d+)?%?"
 
-    numbers = re.findall(
+    nums = re.findall(
         pattern,
         text
     )
 
     mapping = {}
 
-    for i, number in enumerate(numbers):
+    for i, num in enumerate(nums):
 
         token = f"__NUM_{i}__"
 
-        mapping[token] = number
+        mapping[token] = num
 
         text = text.replace(
-            number,
+            num,
             token,
             1
         )
@@ -91,17 +98,20 @@ def lock_numbers(text):
 
 def restore_numbers(text, mapping):
 
-    for k, v in mapping.items():
-        text = text.replace(k, v)
+    for token, value in mapping.items():
+        text = text.replace(
+            token,
+            value
+        )
 
     return text
 
 
-# --------------------------------
+# -----------------------------
 # LLM REWRITE
-# --------------------------------
+# -----------------------------
 
-def llm_rewrite(text, mode):
+def rewrite_text(text, mode):
 
     prompts = {
 
@@ -109,47 +119,50 @@ def llm_rewrite(text, mode):
 Rewrite lightly.
 
 Requirements:
-- Preserve citations exactly
-- Preserve numbers exactly
-- Preserve statistics exactly
-- Preserve findings exactly
-- Improve readability
+- Preserve citations exactly.
+- Preserve numbers exactly.
+- Preserve findings.
+- Improve readability.
+- Keep technical meaning unchanged.
 """,
 
         "Medium": """
 Rewrite academically.
 
 Requirements:
-- Preserve citations exactly
-- Preserve numerical values exactly
-- Preserve findings
-- Vary sentence structure
-- Reduce textual similarity
-- Improve flow
-- Use natural academic language
-- Reduce repetitive AI-style phrases
+- Preserve citations exactly.
+- Preserve percentages exactly.
+- Preserve findings exactly.
+- Reduce textual similarity.
+- Vary sentence lengths.
+- Improve readability.
+- Use natural academic writing.
+- Avoid repetitive AI-style wording.
 """,
 
         "Aggressive": """
 Rewrite extensively.
 
 Requirements:
-- Preserve citations exactly
-- Preserve numerical values exactly
-- Preserve findings exactly
-- Reorganize ideas
-- Rewrite sentence structures
-- Mix short and long sentences
-- Use academic storytelling
-- Improve burstiness
-- Improve readability
-- Reduce textual similarity as much as possible
+- Preserve citations exactly.
+- Preserve statistics exactly.
+- Preserve findings exactly.
+
+Rewrite by:
+- Reorganizing ideas.
+- Splitting long sentences.
+- Combining short sentences.
+- Using academic storytelling.
+- Increasing burstiness.
+- Reducing repetitive AI patterns.
+- Minimizing textual similarity while preserving meaning.
 """
     }
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    completion = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
         temperature=0.9,
+        max_tokens=4096,
         messages=[
             {
                 "role": "system",
@@ -162,12 +175,12 @@ Requirements:
         ]
     )
 
-    return response.choices[0].message.content
+    return completion.choices[0].message.content
 
 
-# --------------------------------
-# ANALYSIS
-# --------------------------------
+# -----------------------------
+# SIMILARITY
+# -----------------------------
 
 def similarity_score(original, rewritten):
 
@@ -184,7 +197,8 @@ def similarity_score(original, rewritten):
 def originality_score(original, rewritten):
 
     return round(
-        100 - similarity_score(
+        100 -
+        similarity_score(
             original,
             rewritten
         ),
@@ -192,7 +206,11 @@ def originality_score(original, rewritten):
     )
 
 
-def readability(text):
+# -----------------------------
+# READABILITY
+# -----------------------------
+
+def readability_score(text):
 
     if textstat is None:
         return "N/A"
@@ -204,36 +222,38 @@ def readability(text):
             2
         )
 
-    except Exception:
+    except:
+
         return "N/A"
 
 
-# --------------------------------
+# -----------------------------
 # UI
-# --------------------------------
+# -----------------------------
 
-st.title("📚 Academic Humanizer")
+st.title("📚 Academic Humanizer Pro")
 
 st.markdown("""
 ### Features
 
-✅ Preserve citations
+✅ Citation Preservation
 
-✅ Preserve statistics
+✅ Numerical Preservation
 
-✅ Preserve key findings
+✅ Research Finding Preservation
 
-✅ GPT-powered rewriting
+✅ Llama 3.3 (70B) Rewriting
 
-✅ Similarity analysis
+✅ Similarity Analysis
 
-✅ Readability analysis
+✅ Readability Analysis
 
-✅ Download rewritten text
+✅ Download Output
 """)
 
-rewrite_level = st.selectbox(
-    "Rewrite Mode",
+
+rewrite_mode = st.selectbox(
+    "Rewrite Strength",
     [
         "Light",
         "Medium",
@@ -241,13 +261,14 @@ rewrite_level = st.selectbox(
     ]
 )
 
+
 input_text = st.text_area(
     "Paste Academic Text",
     height=300
 )
 
 
-if st.button("✨ Rewrite"):
+if st.button("✨ Rewrite Text"):
 
     if not input_text.strip():
 
@@ -257,7 +278,9 @@ if st.button("✨ Rewrite"):
 
     else:
 
-        with st.spinner("Rewriting..."):
+        with st.spinner(
+            "Rewriting text..."
+        ):
 
             text, citation_map = lock_citations(
                 input_text
@@ -267,9 +290,9 @@ if st.button("✨ Rewrite"):
                 text
             )
 
-            rewritten = llm_rewrite(
+            rewritten = rewrite_text(
                 text,
-                rewrite_level
+                rewrite_mode
             )
 
             rewritten = restore_numbers(
@@ -291,13 +314,12 @@ if st.button("✨ Rewrite"):
             ] = rewritten
 
 
-# --------------------------------
+# -----------------------------
 # RESULTS
-# --------------------------------
+# -----------------------------
 
 if (
-    "original" in st.session_state
-    and
+    "original" in st.session_state and
     "rewritten" in st.session_state
 ):
 
@@ -319,37 +341,37 @@ if (
         rewritten
     )
 
-    reading = readability(
+    readability = readability_score(
         rewritten
     )
 
     st.divider()
 
-    col1, col2, col3 = st.columns(3)
+    c1, c2, c3 = st.columns(3)
 
-    with col1:
+    with c1:
         st.metric(
             "Similarity",
             f"{similarity}%"
         )
 
-    with col2:
+    with c2:
         st.metric(
             "Originality",
             f"{originality}%"
         )
 
-    with col3:
+    with c3:
         st.metric(
             "Readability",
-            reading
+            readability
         )
 
     st.divider()
 
-    c1, c2 = st.columns(2)
+    left, right = st.columns(2)
 
-    with c1:
+    with left:
 
         st.subheader(
             "Original"
@@ -358,10 +380,10 @@ if (
         st.text_area(
             "",
             original,
-            height=400
+            height=450
         )
 
-    with c2:
+    with right:
 
         st.subheader(
             "Rewritten"
@@ -370,12 +392,12 @@ if (
         st.text_area(
             "",
             rewritten,
-            height=400
+            height=450
         )
 
     st.download_button(
         "📥 Download TXT",
         rewritten,
-        file_name="rewritten.txt",
+        file_name="humanized_text.txt",
         mime="text/plain"
     )
