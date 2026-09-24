@@ -5,13 +5,12 @@ from groq import Groq
 
 try:
     import textstat
-except:
+except ImportError:
     textstat = None
 
-
-# --------------------------------------------------
+# ----------------------------------
 # CONFIG
-# --------------------------------------------------
+# ----------------------------------
 
 st.set_page_config(
     page_title="Academic Editor",
@@ -19,38 +18,41 @@ st.set_page_config(
     layout="wide"
 )
 
-# --------------------------------------------------
+# ----------------------------------
 # GROQ
-# --------------------------------------------------
+# ----------------------------------
 
 if "GROQ_API_KEY" not in st.secrets:
-    st.error("Missing GROQ_API_KEY")
+    st.error("Missing GROQ_API_KEY in Streamlit Secrets")
     st.stop()
 
 client = Groq(
     api_key=st.secrets["GROQ_API_KEY"]
 )
 
+# ----------------------------------
+# MODEL LIST
+# ----------------------------------
 
 @st.cache_data(ttl=3600)
 def get_models():
 
     fallback = [
-        "llama-3.1-8b-instant",
-        "llama-3.3-70b-versatile",
-        "deepseek-r1-distill-llama-70b"
+        "llama-3.1-8b-instant"
     ]
 
     try:
 
         models = client.models.list()
 
-        names = []
+        available = []
 
-        for m in models.data:
+        for model in models.data:
+
+            name = model.id.lower()
 
             if any(
-                x in m.id.lower()
+                x in name
                 for x in [
                     "whisper",
                     "embed",
@@ -60,18 +62,16 @@ def get_models():
             ):
                 continue
 
-            names.append(m.id)
+            available.append(model.id)
 
-        return names if names else fallback
+        return available if available else fallback
 
     except Exception:
-
         return fallback
 
-
-# --------------------------------------------------
+# ----------------------------------
 # CITATION LOCKER
-# --------------------------------------------------
+# ----------------------------------
 
 def lock_citations(text):
 
@@ -111,10 +111,9 @@ def restore_citations(text, mapping):
 
     return text
 
-
-# --------------------------------------------------
+# ----------------------------------
 # NUMBER LOCKER
-# --------------------------------------------------
+# ----------------------------------
 
 def lock_numbers(text):
 
@@ -156,10 +155,9 @@ def restore_numbers(text, mapping):
 
     return text
 
-
-# --------------------------------------------------
+# ----------------------------------
 # PASS 1
-# --------------------------------------------------
+# ----------------------------------
 
 def rewrite_pass1(text, model):
 
@@ -167,13 +165,12 @@ def rewrite_pass1(text, model):
 Preserve every placeholder token exactly.
 
 Requirements:
-
 - Preserve meaning.
 - Preserve findings.
 - Preserve technical content.
 - Preserve all placeholder tokens.
 
-Rewrite the text in concise academic English.
+Rewrite in clear academic English.
 
 Text:
 
@@ -183,7 +180,6 @@ Text:
     response = client.chat.completions.create(
         model=model,
         temperature=0.6,
-        max_tokens=2000,
         messages=[
             {
                 "role": "user",
@@ -194,28 +190,26 @@ Text:
 
     return response.choices[0].message.content
 
-
-# --------------------------------------------------
+# ----------------------------------
 # PASS 2
-# --------------------------------------------------
+# ----------------------------------
 
 def rewrite_pass2(text, model):
 
     prompt = f"""
 Preserve every placeholder token exactly.
 
-Revise the following academic text.
+Revise the academic text below.
 
 Requirements:
-
-- Preserve factual meaning.
+- Preserve meaning.
 - Preserve findings.
 - Preserve placeholder tokens.
 - Improve readability.
-- Improve organization.
-- Vary sentence structures.
+- Improve flow.
+- Improve paragraph organization.
 - Reduce repetition.
-- Improve flow between ideas.
+- Vary sentence structure.
 
 Return only the revised text.
 
@@ -226,8 +220,7 @@ Text:
 
     response = client.chat.completions.create(
         model=model,
-        temperature=0.9,
-        max_tokens=2000,
+        temperature=0.8,
         messages=[
             {
                 "role": "user",
@@ -238,12 +231,11 @@ Text:
 
     return response.choices[0].message.content
 
-
-# --------------------------------------------------
+# ----------------------------------
 # METRICS
-# --------------------------------------------------
+# ----------------------------------
 
-def similarity(original, rewritten):
+def similarity_score(original, rewritten):
 
     return round(
         SequenceMatcher(
@@ -255,10 +247,10 @@ def similarity(original, rewritten):
     )
 
 
-def originality(original, rewritten):
+def originality_score(original, rewritten):
 
     return round(
-        100 - similarity(
+        100 - similarity_score(
             original,
             rewritten
         ),
@@ -266,7 +258,7 @@ def originality(original, rewritten):
     )
 
 
-def readability(text):
+def readability_score(text):
 
     if textstat is None:
         return "N/A"
@@ -278,23 +270,124 @@ def readability(text):
             2
         )
 
-    except:
-
+    except Exception:
         return "N/A"
 
-
-# --------------------------------------------------
+# ----------------------------------
 # UI
-# --------------------------------------------------
+# ----------------------------------
 
 st.title("📚 Academic Editor")
 
-st.markdown(
-"""
+st.markdown("""
 ### Features
 
 ✅ Citation preservation
 
-✅ Statistics preservation
+✅ Number/statistics preservation
 
-✅ Two-pass academic 
+✅ Groq-powered academic editing
+
+✅ Two-pass revision workflow
+
+✅ Similarity analysis
+
+✅ Readability analysis
+
+✅ TXT export
+""")
+
+col1, col2 = st.columns(2)
+
+with col1:
+
+    enhance_mode = st.selectbox(
+        "Revision Mode",
+        [
+            "Standard",
+            "Enhanced"
+        ]
+    )
+
+with col2:
+
+    available_models = get_models()
+
+    selected_model = st.selectbox(
+        "Groq Model",
+        available_models
+    )
+
+input_text = st.text_area(
+    "Paste Academic Text",
+    height=300
+)
+
+# ----------------------------------
+# PROCESS
+# ----------------------------------
+
+if st.button("✨ Edit Text"):
+
+    if not input_text.strip():
+
+        st.warning(
+            "Please enter text."
+        )
+
+    else:
+
+        try:
+
+            with st.spinner("Editing..."):
+
+                locked_text, citation_map = lock_citations(
+                    input_text
+                )
+
+                locked_text, number_map = lock_numbers(
+                    locked_text
+                )
+
+                first_pass = rewrite_pass1(
+                    locked_text,
+                    selected_model
+                )
+
+                second_pass = rewrite_pass2(
+                    first_pass,
+                    selected_model
+                )
+
+                if enhance_mode == "Enhanced":
+
+                    second_pass = rewrite_pass2(
+                        second_pass,
+                        selected_model
+                    )
+
+                final_text = restore_numbers(
+                    second_pass,
+                    number_map
+                )
+
+                final_text = restore_citations(
+                    final_text,
+                    citation_map
+                )
+
+                st.session_state["original"] = input_text
+                st.session_state["edited"] = final_text
+
+        except Exception as e:
+
+            st.error(f"Groq Error: {str(e)}")
+
+# ----------------------------------
+# RESULTS
+# ----------------------------------
+
+if (
+    "original" in st.session_state
+    and
+    "edited" in st.
