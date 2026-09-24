@@ -1,7 +1,7 @@
 import streamlit as st
 import re
-import random
 from difflib import SequenceMatcher
+from openai import OpenAI
 
 try:
     import textstat
@@ -9,136 +9,168 @@ except ImportError:
     textstat = None
 
 
-# ---------------------------------
-# Citation & Number Protection
-# ---------------------------------
+# --------------------------------
+# CONFIG
+# --------------------------------
+
+st.set_page_config(
+    page_title="Academic Humanizer",
+    page_icon="📚",
+    layout="wide"
+)
+
+client = OpenAI(
+    api_key=st.secrets["OPENAI_API_KEY"]
+)
+
+# --------------------------------
+# CITATION LOCKING
+# --------------------------------
 
 def lock_citations(text):
-    citations = re.findall(r"\[\d+(?:[-–]\d+)?\]", text)
+
+    citations = re.findall(
+        r"\[\d+(?:[-–]\d+)?\]",
+        text
+    )
 
     mapping = {}
 
     for i, citation in enumerate(citations):
-        placeholder = f"__CIT_{i}__"
-        mapping[placeholder] = citation
-        text = text.replace(citation, placeholder, 1)
+
+        token = f"__CIT_{i}__"
+
+        mapping[token] = citation
+
+        text = text.replace(
+            citation,
+            token,
+            1
+        )
 
     return text, mapping
 
 
 def restore_citations(text, mapping):
-    for key, value in mapping.items():
-        text = text.replace(key, value)
+
+    for k, v in mapping.items():
+        text = text.replace(k, v)
 
     return text
 
 
+# --------------------------------
+# NUMBER LOCKING
+# --------------------------------
+
 def lock_numbers(text):
-    numbers = re.findall(r"\d+(?:\.\d+)?%?", text)
+
+    pattern = r"\d+(?:\.\d+)?%?"
+
+    numbers = re.findall(
+        pattern,
+        text
+    )
 
     mapping = {}
 
     for i, number in enumerate(numbers):
-        placeholder = f"__NUM_{i}__"
-        mapping[placeholder] = number
-        text = text.replace(number, placeholder, 1)
+
+        token = f"__NUM_{i}__"
+
+        mapping[token] = number
+
+        text = text.replace(
+            number,
+            token,
+            1
+        )
 
     return text, mapping
 
 
 def restore_numbers(text, mapping):
-    for key, value in mapping.items():
-        text = text.replace(key, value)
+
+    for k, v in mapping.items():
+        text = text.replace(k, v)
 
     return text
 
 
-# ---------------------------------
-# Humanizer
-# ---------------------------------
+# --------------------------------
+# LLM REWRITE
+# --------------------------------
 
-def rewrite_phrases(text):
-    replacements = {
-        "However": [
-            "Still",
-            "Even so",
-            "That said"
-        ],
-        "Furthermore": [
-            "In addition",
-            "Another observation is that",
-            "More importantly"
-        ],
-        "Moreover": [
-            "Beyond that",
-            "Interestingly",
-            "There's another perspective"
-        ],
-        "Recent studies": [
-            "Recent findings",
-            "Researchers have increasingly observed",
-            "A growing body of evidence suggests"
-        ],
-        "At the same time": [
-            "Meanwhile",
-            "In parallel",
-            "Still"
-        ]
+def llm_rewrite(text, mode):
+
+    prompts = {
+
+        "Light": """
+Rewrite lightly.
+
+Requirements:
+- Preserve citations exactly
+- Preserve numbers exactly
+- Preserve statistics exactly
+- Preserve findings exactly
+- Improve readability
+""",
+
+        "Medium": """
+Rewrite academically.
+
+Requirements:
+- Preserve citations exactly
+- Preserve numerical values exactly
+- Preserve findings
+- Vary sentence structure
+- Reduce textual similarity
+- Improve flow
+- Use natural academic language
+- Reduce repetitive AI-style phrases
+""",
+
+        "Aggressive": """
+Rewrite extensively.
+
+Requirements:
+- Preserve citations exactly
+- Preserve numerical values exactly
+- Preserve findings exactly
+- Reorganize ideas
+- Rewrite sentence structures
+- Mix short and long sentences
+- Use academic storytelling
+- Improve burstiness
+- Improve readability
+- Reduce textual similarity as much as possible
+"""
     }
 
-    for phrase, options in replacements.items():
-        text = re.sub(
-            phrase,
-            random.choice(options),
-            text,
-            flags=re.IGNORECASE
-        )
-
-    return text
-
-
-def add_human_variation(text):
-    sentences = re.split(
-        r'(?<=[.!?])\s+',
-        text
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0.9,
+        messages=[
+            {
+                "role": "system",
+                "content": prompts[mode]
+            },
+            {
+                "role": "user",
+                "content": text
+            }
+        ]
     )
 
-    result = []
-
-    injections = [
-        "That matters.",
-        "An interesting detail.",
-        "Something worth noting.",
-        "A small point, but an important one.",
-        "Not perfect. Still useful."
-    ]
-
-    for sentence in sentences:
-        if sentence.strip():
-
-            result.append(sentence)
-
-            if len(sentence.split()) > 22:
-                if random.random() > 0.6:
-                    result.append(
-                        random.choice(injections)
-                    )
-
-    return " ".join(result)
+    return response.choices[0].message.content
 
 
-def humanize_text(text):
-    text = rewrite_phrases(text)
-    text = add_human_variation(text)
-
-    return text
-
-
-# ---------------------------------
-# Analysis
-# ---------------------------------
+# --------------------------------
+# ANALYSIS
+# --------------------------------
 
 def similarity_score(original, rewritten):
+
     return round(
         SequenceMatcher(
             None,
@@ -150,6 +182,7 @@ def similarity_score(original, rewritten):
 
 
 def originality_score(original, rewritten):
+
     return round(
         100 - similarity_score(
             original,
@@ -160,93 +193,71 @@ def originality_score(original, rewritten):
 
 
 def readability(text):
+
     if textstat is None:
         return "N/A"
 
     try:
+
         return round(
             textstat.flesch_reading_ease(text),
             2
         )
+
     except Exception:
         return "N/A"
 
 
-def detect_ai_phrases(text):
-    patterns = [
-        "Furthermore",
-        "Moreover",
-        "In conclusion",
-        "It is important to note",
-        "Recent studies suggest",
-        "Consequently",
-        "Notably"
-    ]
-
-    found = []
-
-    for pattern in patterns:
-        if pattern.lower() in text.lower():
-            found.append(pattern)
-
-    return found
-
-
-# ---------------------------------
-# Streamlit UI
-# ---------------------------------
-
-st.set_page_config(
-    page_title="Academic Humanizer",
-    page_icon="📚",
-    layout="wide"
-)
+# --------------------------------
+# UI
+# --------------------------------
 
 st.title("📚 Academic Humanizer")
 
-st.markdown(
-    """
-### Preserve
+st.markdown("""
+### Features
 
-- Citations
-- Statistics
-- Research findings
+✅ Preserve citations
 
-### Improve
+✅ Preserve statistics
 
-- Readability
-- Narrative flow
-- Human-like writing style
-"""
+✅ Preserve key findings
+
+✅ GPT-powered rewriting
+
+✅ Similarity analysis
+
+✅ Readability analysis
+
+✅ Download rewritten text
+""")
+
+rewrite_level = st.selectbox(
+    "Rewrite Mode",
+    [
+        "Light",
+        "Medium",
+        "Aggressive"
+    ]
 )
 
-tab1, tab2 = st.tabs(
-    ["Rewrite", "Analysis"]
+input_text = st.text_area(
+    "Paste Academic Text",
+    height=300
 )
 
-# ---------------------------------
-# Rewrite Tab
-# ---------------------------------
 
-with tab1:
+if st.button("✨ Rewrite"):
 
-    input_text = st.text_area(
-        "Paste Academic Text",
-        height=350
-    )
+    if not input_text.strip():
 
-    rewrite_level = st.selectbox(
-        "Rewrite Strength",
-        [
-            "Light",
-            "Medium",
-            "Aggressive"
-        ]
-    )
+        st.warning(
+            "Please enter text."
+        )
 
-    if st.button("✨ Humanize"):
+    else:
 
-        if input_text.strip():
+        with st.spinner("Rewriting..."):
 
             text, citation_map = lock_citations(
                 input_text
@@ -256,20 +267,10 @@ with tab1:
                 text
             )
 
-            if rewrite_level == "Light":
-                rewritten = humanize_text(text)
-
-            elif rewrite_level == "Medium":
-                rewritten = humanize_text(
-                    humanize_text(text)
-                )
-
-            else:
-                rewritten = humanize_text(
-                    humanize_text(
-                        humanize_text(text)
-                    )
-                )
+            rewritten = llm_rewrite(
+                text,
+                rewrite_level
+            )
 
             rewritten = restore_numbers(
                 rewritten,
@@ -281,97 +282,100 @@ with tab1:
                 citation_map
             )
 
-            st.session_state["original"] = input_text
-            st.session_state["rewritten"] = rewritten
+            st.session_state[
+                "original"
+            ] = input_text
 
-            st.subheader("Humanized Output")
+            st.session_state[
+                "rewritten"
+            ] = rewritten
 
-            st.write(rewritten)
 
-            st.download_button(
-                label="📥 Download TXT",
-                data=rewritten,
-                file_name="humanized_text.txt",
-                mime="text/plain"
-            )
+# --------------------------------
+# RESULTS
+# --------------------------------
 
-        else:
-            st.warning(
-                "Please enter some text."
-            )
+if (
+    "original" in st.session_state
+    and
+    "rewritten" in st.session_state
+):
 
-# ---------------------------------
-# Analysis Tab
-# ---------------------------------
+    original = st.session_state[
+        "original"
+    ]
 
-with tab2:
+    rewritten = st.session_state[
+        "rewritten"
+    ]
 
-    if (
-        "original" in st.session_state
-        and
-        "rewritten" in st.session_state
-    ):
+    similarity = similarity_score(
+        original,
+        rewritten
+    )
 
-        original = st.session_state["original"]
-        rewritten = st.session_state["rewritten"]
+    originality = originality_score(
+        original,
+        rewritten
+    )
 
-        similarity = similarity_score(
+    reading = readability(
+        rewritten
+    )
+
+    st.divider()
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "Similarity",
+            f"{similarity}%"
+        )
+
+    with col2:
+        st.metric(
+            "Originality",
+            f"{originality}%"
+        )
+
+    with col3:
+        st.metric(
+            "Readability",
+            reading
+        )
+
+    st.divider()
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+
+        st.subheader(
+            "Original"
+        )
+
+        st.text_area(
+            "",
             original,
-            rewritten
+            height=400
         )
 
-        originality = originality_score(
-            original,
-            rewritten
+    with c2:
+
+        st.subheader(
+            "Rewritten"
         )
 
-        reading_score = readability(
-            rewritten
+        st.text_area(
+            "",
+            rewritten,
+            height=400
         )
 
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.metric(
-                "Similarity",
-                f"{similarity}%"
-            )
-
-        with col2:
-            st.metric(
-                "Originality",
-                f"{originality}%"
-            )
-
-        with col3:
-            st.metric(
-                "Readability",
-                reading_score
-            )
-
-        st.progress(
-            min(int(originality), 100)
-        )
-
-        st.subheader("AI Phrase Detection")
-
-        phrases = detect_ai_phrases(
-            rewritten
-        )
-
-        if phrases:
-
-            for phrase in phrases:
-                st.warning(
-                    f"Detected: {phrase}"
-                )
-
-        else:
-            st.success(
-                "No common AI-style phrases detected."
-            )
-
-    else:
-        st.info(
-            "Generate a rewritten version first."
-        )
+    st.download_button(
+        "📥 Download TXT",
+        rewritten,
+        file_name="rewritten.txt",
+        mime="text/plain"
+    )
