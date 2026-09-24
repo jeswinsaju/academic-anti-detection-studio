@@ -1,6 +1,7 @@
-import streamlit as st
 import re
 from difflib import SequenceMatcher
+
+import streamlit as st
 from groq import Groq
 
 try:
@@ -8,9 +9,10 @@ try:
 except ImportError:
     textstat = None
 
-# ----------------------------------
-# CONFIG
-# ----------------------------------
+
+# --------------------------------------------------
+# PAGE CONFIG
+# --------------------------------------------------
 
 st.set_page_config(
     page_title="Academic Editor",
@@ -18,47 +20,39 @@ st.set_page_config(
     layout="wide"
 )
 
-# ----------------------------------
-# GROQ
-# ----------------------------------
+
+# --------------------------------------------------
+# GROQ CLIENT
+# --------------------------------------------------
 
 if "GROQ_API_KEY" not in st.secrets:
-    st.error("Missing GROQ_API_KEY in Streamlit Secrets")
+    st.error("Missing GROQ_API_KEY in Streamlit secrets.")
     st.stop()
 
 client = Groq(
     api_key=st.secrets["GROQ_API_KEY"]
 )
 
-# ----------------------------------
-# MODEL LIST
-# ----------------------------------
+
+# --------------------------------------------------
+# MODEL DISCOVERY
+# --------------------------------------------------
 
 @st.cache_data(ttl=3600)
 def get_models():
-
-    fallback = [
-        "llama-3.1-8b-instant"
-    ]
+    fallback = ["llama-3.1-8b-instant"]
 
     try:
-
         models = client.models.list()
 
         available = []
 
         for model in models.data:
-
-            name = model.id.lower()
+            model_id = model.id.lower()
 
             if any(
-                x in name
-                for x in [
-                    "whisper",
-                    "embed",
-                    "tts",
-                    "guard"
-                ]
+                x in model_id
+                for x in ["whisper", "tts", "embed", "guard"]
             ):
                 continue
 
@@ -69,110 +63,92 @@ def get_models():
     except Exception:
         return fallback
 
-# ----------------------------------
+
+# --------------------------------------------------
 # CITATION LOCKER
-# ----------------------------------
+# --------------------------------------------------
 
 def lock_citations(text):
-
     mapping = {}
-
     counter = 0
 
     def repl(match):
-
         nonlocal counter
 
         token = f"REFTOKEN{counter}X"
-
         mapping[token] = match.group(0)
 
         counter += 1
-
         return token
 
-    text = re.sub(
+    locked = re.sub(
         r"\[\d+(?:[-–]\d+)?\]",
         repl,
         text
     )
 
-    return text, mapping
+    return locked, mapping
 
 
 def restore_citations(text, mapping):
-
     for token, citation in mapping.items():
-
-        text = text.replace(
-            token,
-            citation
-        )
+        text = text.replace(token, citation)
 
     return text
 
-# ----------------------------------
+
+# --------------------------------------------------
 # NUMBER LOCKER
-# ----------------------------------
+# --------------------------------------------------
 
 def lock_numbers(text):
-
     mapping = {}
-
     counter = 0
 
     def repl(match):
-
         nonlocal counter
 
         token = f"NUMTOKEN{counter}X"
-
         mapping[token] = match.group(0)
 
         counter += 1
-
         return token
 
-    pattern = r"(?<![a-zA-Z_])\d+(?:\.\d+)?%?(?![a-zA-Z_])"
+    pattern = r"(?<![A-Za-z_])\d+(?:\.\d+)?%?(?![A-Za-z_])"
 
-    text = re.sub(
+    locked = re.sub(
         pattern,
         repl,
         text
     )
 
-    return text, mapping
+    return locked, mapping
 
 
 def restore_numbers(text, mapping):
-
     for token, value in mapping.items():
-
-        text = text.replace(
-            token,
-            value
-        )
+        text = text.replace(token, value)
 
     return text
 
-# ----------------------------------
+
+# --------------------------------------------------
 # PASS 1
-# ----------------------------------
+# --------------------------------------------------
 
 def rewrite_pass1(text, model):
-
     prompt = f"""
-Preserve every placeholder token exactly.
+Preserve all placeholder tokens exactly.
 
 Requirements:
 - Preserve meaning.
 - Preserve findings.
 - Preserve technical content.
-- Preserve all placeholder tokens.
+- Preserve all placeholder tokens exactly.
 
-Rewrite in clear academic English.
+Rewrite using clear academic English.
 
-Text:
+TEXT:
 
 {text}
 """
@@ -190,30 +166,30 @@ Text:
 
     return response.choices[0].message.content
 
-# ----------------------------------
+
+# --------------------------------------------------
 # PASS 2
-# ----------------------------------
+# --------------------------------------------------
 
 def rewrite_pass2(text, model):
-
     prompt = f"""
-Preserve every placeholder token exactly.
+Preserve all placeholder tokens exactly.
 
-Revise the academic text below.
+Revise the following academic text.
 
 Requirements:
 - Preserve meaning.
 - Preserve findings.
-- Preserve placeholder tokens.
+- Preserve technical accuracy.
+- Preserve all placeholders exactly.
 - Improve readability.
-- Improve flow.
-- Improve paragraph organization.
+- Improve organization.
 - Reduce repetition.
-- Vary sentence structure.
+- Improve flow and clarity.
 
 Return only the revised text.
 
-Text:
+TEXT:
 
 {text}
 """
@@ -231,12 +207,12 @@ Text:
 
     return response.choices[0].message.content
 
-# ----------------------------------
+
+# --------------------------------------------------
 # METRICS
-# ----------------------------------
+# --------------------------------------------------
 
 def similarity_score(original, rewritten):
-
     return round(
         SequenceMatcher(
             None,
@@ -248,43 +224,40 @@ def similarity_score(original, rewritten):
 
 
 def originality_score(original, rewritten):
-
     return round(
-        100 - similarity_score(
-            original,
-            rewritten
-        ),
+        100 - similarity_score(original, rewritten),
         2
     )
 
 
 def readability_score(text):
-
     if textstat is None:
         return "N/A"
 
     try:
-
         return round(
             textstat.flesch_reading_ease(text),
             2
         )
-
     except Exception:
         return "N/A"
 
-# ----------------------------------
+
+# --------------------------------------------------
 # UI
-# ----------------------------------
+# --------------------------------------------------
 
 st.title("📚 Academic Editor")
 
-st.markdown("""
+st.markdown(
+    """
 ### Features
 
 ✅ Citation preservation
 
-✅ Number/statistics preservation
+✅ Statistics preservation
+
+✅ Number preservation
 
 ✅ Groq-powered academic editing
 
@@ -295,51 +268,43 @@ st.markdown("""
 ✅ Readability analysis
 
 ✅ TXT export
-""")
+"""
+)
 
 col1, col2 = st.columns(2)
 
 with col1:
-
-    enhance_mode = st.selectbox(
+    revision_mode = st.selectbox(
         "Revision Mode",
-        [
-            "Standard",
-            "Enhanced"
-        ]
+        ["Standard", "Enhanced"]
     )
 
 with col2:
-
-    available_models = get_models()
+    models = get_models()
 
     selected_model = st.selectbox(
         "Groq Model",
-        available_models
+        models
     )
 
 input_text = st.text_area(
     "Paste Academic Text",
-    height=300
+    height=320
 )
 
-# ----------------------------------
-# PROCESS
-# ----------------------------------
+
+# --------------------------------------------------
+# PROCESS BUTTON
+# --------------------------------------------------
 
 if st.button("✨ Edit Text"):
 
     if not input_text.strip():
-
-        st.warning(
-            "Please enter text."
-        )
+        st.warning("Please enter some text.")
 
     else:
-
         try:
-
-            with st.spinner("Editing..."):
+            with st.spinner("Editing text..."):
 
                 locked_text, citation_map = lock_citations(
                     input_text
@@ -359,8 +324,7 @@ if st.button("✨ Edit Text"):
                     selected_model
                 )
 
-                if enhance_mode == "Enhanced":
-
+                if revision_mode == "Enhanced":
                     second_pass = rewrite_pass2(
                         second_pass,
                         selected_model
@@ -380,15 +344,80 @@ if st.button("✨ Edit Text"):
                 st.session_state["edited"] = final_text
 
         except Exception as e:
+            st.error(f"Error: {e}")
 
-            st.error(f"Groq Error: {str(e)}")
 
-# ----------------------------------
+# --------------------------------------------------
 # RESULTS
-# ----------------------------------
+# --------------------------------------------------
 
-if (
-    "original" in st.session_state
-    and
-    "edited" in st.
-)
+if "original" in st.session_state and "edited" in st.session_state:
+
+    original_text = st.session_state["original"]
+    edited_text = st.session_state["edited"]
+
+    similarity = similarity_score(
+        original_text,
+        edited_text
+    )
+
+    originality = originality_score(
+        original_text,
+        edited_text
+    )
+
+    readability = readability_score(
+        edited_text
+    )
+
+    st.divider()
+
+    m1, m2, m3 = st.columns(3)
+
+    with m1:
+        st.metric(
+            "Similarity",
+            f"{similarity}%"
+        )
+
+    with m2:
+        st.metric(
+            "Originality",
+            f"{originality}%"
+        )
+
+    with m3:
+        st.metric(
+            "Readability",
+            readability
+        )
+
+    st.divider()
+
+    left, right = st.columns(2)
+
+    with left:
+        st.subheader("Original")
+
+        st.text_area(
+            "Original Text",
+            value=original_text,
+            height=450,
+            disabled=True
+        )
+
+    with right:
+        st.subheader("Edited")
+
+        st.text_area(
+            "Edited Text",
+            value=edited_text,
+            height=450
+        )
+
+    st.download_button(
+        label="📥 Download TXT",
+        data=edited_text,
+        file_name="academic_editor_output.txt",
+        mime="text/plain"
+    )
